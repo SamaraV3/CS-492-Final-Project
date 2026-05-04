@@ -1,9 +1,8 @@
 # FSX492
 
 Group Members
-- member1 (email1)
-- member2 (email2)
-- member3 (email3)
+- svassell (svassell@stevens.edu)
+- sradice (sradice@stevens.edu)
 
 Additional features implemented:
 
