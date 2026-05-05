@@ -44,7 +44,7 @@ static int blkdev_size(struct blkdev * dev)
     struct image * im = dev->private;
     assert(im);
 
-    // TODO:
+    // TODO: I think im->size is set in init, so we can just return it here - Done
 
     return im->size;
 }
