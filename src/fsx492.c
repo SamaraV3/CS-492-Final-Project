@@ -1547,14 +1547,21 @@ int fsx492_opendir(const char * path, struct fuse_file_info * fi)
     // TODO:
 
     // look up the directory inode
+    uint32_t ino = 0; int ret = lookup_path(path, &ino, NULL);
+    if (ret < 0) {return ret;}//aka there was a failure
+    if (!S_ISDIR(ctx->inodes[ino].mode)) {return -ENOTDIR;}//check if it is a dir
 
+    //getting here means its a dir with valid path
     // create a new file handle
-
+    struct fh * handle = malloc(sizeof(struct fh));
+    if (!handle) {return -ENOSPC;}//check if malloc succeeded
+    handle->ino = ino; handle->flags = fi->flags;
     // (optional) perform permissions checking
 
     // update fi with file handle
+    fi->fh = (uint64_t)handle;
 
-    return -ENOSYS;
+    return 0;
 }
 
 
