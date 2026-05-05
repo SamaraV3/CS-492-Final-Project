@@ -95,7 +95,50 @@ def test_large_file(mountpoint):
 
     print("[test] passed large file")
 
-
+# test for finding entries in a directory block
+def test_directory_lookup(mountpoint):
+    """Test find_entry functionality through directory operations"""
+    
+    # Test 1: Root directory should have '.' and '..'
+    print(f"[test] Checking root directory entries")
+    entries = os.listdir(mountpoint)
+    print(f"  Root entries: {entries}")
+    
+    # Test 2: Create a test directory and file
+    test_dir = os.path.join(mountpoint, "testdir")
+    print(f"[test] Creating directory: {test_dir}")
+    os.mkdir(test_dir)
+    
+    test_file = os.path.join(test_dir, "hello.txt")
+    print(f"[test] Creating file: {test_file}")
+    with open(test_file, "w") as f:
+        f.write("test content")
+    
+    # Test 3: Verify they exist (this will use find_entry via lookup_path)
+    print(f"[test] Verifying directory exists")
+    assert os.path.exists(test_dir), "Directory not found"
+    assert os.path.isdir(test_dir), "Not a directory"
+    
+    print(f"[test] Verifying file exists")
+    assert os.path.exists(test_file), "File not found"
+    
+    # Test 4: List directory contents
+    print(f"[test] Listing testdir contents")
+    dir_entries = os.listdir(test_dir)
+    print(f"  {test_dir} entries: {dir_entries}")
+    assert "hello.txt" in dir_entries, "File not in directory listing"
+    
+    # Test 5: Try to find non-existent file (should fail gracefully)
+    bad_path = os.path.join(test_dir, "nonexistent.txt")
+    print(f"[test] Verifying non-existent file is not found")
+    assert not os.path.exists(bad_path), "Non-existent file reported as existing"
+    
+    # Test 6: Check parent directory reference works
+    parent_entry = os.path.join(test_dir, "..")
+    print(f"[test] Checking '..' resolves correctly")
+    assert os.path.exists(parent_entry), "'..' entry missing"
+    
+    print("[test] passed directory lookup")
 
 ##############################################################################
 # END TEST DEFINITIONS
