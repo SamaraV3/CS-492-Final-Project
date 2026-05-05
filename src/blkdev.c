@@ -72,12 +72,25 @@ static int blkdev_read(
     // TODO:
 
     // check if unavailable
+    if (im->fd < 0) {//img file not opened
+        return BLKDEV_E_UNAVAIL;
+    }
 
     // check block range
+    if (start >= im->size || start+n > im->size) {//cant be bigger than size of device
+        return BLKDEV_E_BADADDR;
+    }
 
     // read blocks
+    size_t bytes_to_read = n * BLKDEV_BLKSZ;
+    off_t offset = start * BLKDEV_BLKSZ;
+    ssize_t bytes_read = pread(im->fd, buf, bytes_to_read, offset);
+    if (bytes_read < 0 || (size_t)bytes_read != bytes_to_read) {
+        fprintf(stderr, "error reading from image: %s\n", strerror(errno));
+        return BLKDEV_E_FAULT;
+    }
     
-    return BLKDEV_E_FAULT;
+    return BLKDEV_SUCCESS;
 }
 
 
@@ -105,12 +118,29 @@ static int blkdev_write(
     // TODO:
 
     // check if unavailable
+    if (im->fd < 0) {//img file not opened
+        return BLKDEV_E_UNAVAIL;
+    }
     
     // check block range
+    if (start >= im->size || start+n > im->size) {//cant be bigger than size of device
+        return BLKDEV_E_BADADDR;
+    }
+    //also need a superblock check
+    if (start == 0) {//superblock is block 0
+        return BLKDEV_E_BADADDR;
+    }
 
     // write blocks
+    size_t bytes_to_write = n * BLKDEV_BLKSZ;
+    off_t offset = start * BLKDEV_BLKSZ;
+    ssize_t bytes_written = pwrite(im->fd, buf, bytes_to_write, offset);
+    if (bytes_written < 0 || (size_t)bytes_written != bytes_to_write) {
+        fprintf(stderr, "error writing to image: %s\n", strerror(errno));
+        return BLKDEV_E_FAULT;
+    }
 
-    return BLKDEV_E_FAULT;
+    return BLKDEV_SUCCESS;
 }
 
 
@@ -131,9 +161,11 @@ static int blkdev_flush(struct blkdev * dev, uint32_t start, uint32_t n)
     struct image * im = dev->private;
     assert(im);
 
-    // TODO:
-
-    return BLKDEV_E_FAULT;
+    // TODO: Done 
+    if (im->fd < 0) {//img file not opened
+        return BLKDEV_E_UNAVAIL;
+    }
+    return BLKDEV_SUCCESS;
 }
 
 
@@ -157,11 +189,20 @@ static void blkdev_close(struct blkdev * dev)
     struct image * im = dev->private;
     assert(im);
 
-    // TODO:
+    // TODO: Done
 
     // close image file
+    if (im->fd >= 0) {
+        close(im->fd);
+        im->fd = -1;
+    }
 
     // free allocated memory
+    free(im->path);
+    im->path = NULL;
+    im->size = 0;
+    free(im);
+    dev->private = NULL;
 
 }
 
@@ -203,7 +244,11 @@ int blkdev_init(struct blkdev * dev, char * imgpath)
         fprintf(stderr, "can't access image %s: %s\n", imgpath, strerror(errno));
         return BLKDEV_E_BADDEV;
     }
-    // todo: should add a check that this is a regular file
+    // todo: should add a check that this is a regular file - Done
+    if (!S_ISREG(sb.st_mode)) {
+        fprintf(stderr, "image is not a regular file: %s\n", imgpath);
+        return BLKDEV_E_BADDEV;
+    }
 
     // check that file is a multiple of block size
     if (sb.st_size % BLKDEV_BLKSZ) {
