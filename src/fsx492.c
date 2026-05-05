@@ -540,11 +540,31 @@ static int find_entry(
 
     // TODO:
 
-    // check if directory
+    // check if directory inode aint 0
+    if (dir_ino == 0) {return -EINVAL;}
+    //check if dis directory inode exists
+    if (validate_inode(dir_ino, ctx) < 0) {return -ENOENT;}
+    struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];//gets dir inode struct
+    if (!S_ISDIR(dir_inode->mode)) {return -ENOTDIR;}//checks its acc a dir lol
 
-    // search directory entries in direct_blks
+    //atp dir exists, is not 0, and is acc a dir. so search ts
+    struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];//to hold a block of dir entries
+    // search directory entries in direct_blks - aka N_DIRECT
+    for (int i=0; i < FSX492_N_DIRECT; i++) {
+        if (validate_block(dir_inode->direct_blks[i], ctx) < 0) {continue;}//if block not valid, skip
+        //block is valid - get it
+        uint32_t blk = dir_inode->direct_blks[i];
+        if (read_blks(blk, 1, (void *)entries) < 0) {return -EIO;}//read block into entries array
+        //now search via search_block for name
+        ssize_t idx = search_block(name, entries);
+        if (idx >= 0) {
+            //found it!
+            *ino = entries[idx].ino;
+            return 0;
+        }
+    }
 
-    return -ENOSYS;
+    return -ENOENT;//name dne in dir
 }
 
 
