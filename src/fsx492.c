@@ -506,8 +506,16 @@ static inline ssize_t search_block(
     // TODO:
 
     // find index of `name` parameter if found in `entries` array
+    //iterate over every entry in curr block.
+    //if entry valid and name matches, return index
+    for (int i=0; i<FSX492_DIRENTRIES_PER_BLK; i++) {
+        if (entries[i].valid && strcmp(entries[i].name, name)==0) {
+            return i;//aka index
+        }
+    }
+    
 
-    return -ENOSYS;
+    return -ENOENT;
 }
 
 /**
