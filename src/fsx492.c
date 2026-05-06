@@ -1067,10 +1067,27 @@ int fsx492_getattr(
     // TODO:
 
     // lookup inode (or skip lookup if handle already open in fi)
+    uint32_t ino = 0; int ret = 0;
+    if (fi && fi->fh) { //file handle exists from previous open
+        ino = ((struct fh *)fi->fh)->ino;
+    }
+    else {
+        ret = lookup_path(path, &ino, NULL);
+        if (ret < 0) {
+            fprintf(stderr, "fsx492_getattr: lookup_path failed with %d\n", ret);
+            return ret;
+        }
+    }
+    //also make sure inode exists and is valid
+    if (validate_inode(ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_getattr: inode %u does not exist\n", ino);
+        return -ENOENT;
+    }
 
     // copy stat info to statbuf
+    copy_stat(&ctx->inodes[ino], statbuf);
 
-    return -ENOSYS;
+    return 0;
 }
 
 
