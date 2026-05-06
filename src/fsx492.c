@@ -838,22 +838,84 @@ static int _link(
     // TODO:
 
     // validate name length
+    if (strlen(name) >= FSX492_FILENAMESZ) {
+        fprintf(stderr, "link error: name too long\n");
+        return -EINVAL;
+    }
 
     // validate directory inode
+    if (validate_inode(dir_ino, ctx) < 0) {
+        fprintf(stderr, "link error: directory inode %u does not exist\n", dir_ino);
+        return -ENOENT;
+    }
+    struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];
+    if (!S_ISDIR(dir_inode->mode)) {
+        fprintf(stderr, "link error: inode %u is not a directory\n", dir_ino);
+        return -ENOTDIR;
+    }
+    //validate ino
+    if (validate_inode(ino, ctx) < 0) {
+        fprintf(stderr, "link error: target inode %u does not exist\n", ino);
+        return -ENOENT;
+    }
+    //make sure name dne in dir already
+    uint32_t dummy;
+    int ret = find_entry(name, dir_ino, &dummy, ctx);
+    if (ret == 0) {
+        fprintf(stderr, "link error: name %s already exists in directory inode %u\n", name, dir_ino);
+        return -EEXISTS;
+    } else if (ret != -ENOENT) {//atp we know dir exists and name dne, so any error other than -ENOENT is a disk error
+        fprintf(stderr, "link error: failed to search for name %s in directory inode %u\n", name, dir_ino);
+        return ret;
+    }
+    // load directory entries from disk - rn we know dir is valid and name is valid
+    struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];//will hold 1 block of dir entries as we search for free entry
+    for (int i=0; i<FSX492_N_DIRECT; i++) {
+        uint32_t blkno = dir_inode->direct_blks[i];
+        if (validate_block(blkno, ctx) < 0) {
+            //block is not allocated so we can use it for new entry
+            int ret = alloc_blk(&blkno, ctx);
+            if (ret < 0) {
+                fprintf(stderr, "link error: failed to allocate block for directory entries\n");
+                return ret;
+            }
+            //get here = allocated succesfully, update dir inode and write back
+            dir_inode->direct_blks[i] = blkno;
+            dir_inode->blocks++;
+            dirty_inode(dir_inode->ino, ctx);
+        }
     
-    // load directory entries from disk
+        //a block is allocated so find a free directory entry (allocate new blocks as needed)
+        if (read_blks(blkno, 1, (void *)entries) < 0) {
+            fprintf(stderr, "link error: failed to read directory entries from disk\n");
+            return -EIO;
+        }
+        //otherwise we have a block of entries to search for a free one
+        for (int j = 0; j < FSX492_DIRENTRIES_PER_BLK; j++) {
+            if (!entries[j].valid) {//aka the entry is free - i hope lol
+                //add info to the entry
+                entries[j].valid = 1; entries[j].ino = ino;
+                strncpy(entries[j].name, name, FSX492_FILENAMESZ-1);
+                entries[j].name[FSX492_FILENAMESZ-1] = '\0';//gotta null term
+                // write back modified entry to disk
+                if (write_blks(blkno, 1, (void *)entries) < 0) {
+                    fprintf(stderr, "link error: failed to write directory entries to disk\n");
+                    return -EIO;
+                }
 
-    // find a free directory entry (allocate new blocks as needed)
-    
-    // add the info to the entry
+                // modify directory inode
+                dir_inode->size += sizeof(struct fsx492_dirent);
+                dirty_inode(dir_ino, ctx);//each mod = dirty inode
+                // modify entry inode
+                struct fsx492_inode * entry_inode = &ctx->inodes[ino];
+                entry_inode->nlink++;//cuz we added a new one!
+                dirty_inode(ino, ctx);//since we j modded nlink, we gonna need a writeback later
+                return 0;//success!
+            }
+        }
+    }
 
-    // write back modified entry to disk
-
-    // modify directory inode
-
-    // modify entry inode
-
-    return -ENOSYS;
+    return -ENOSPC;//only occurs if all blocks were full of valid entries
 }
 
 
@@ -1065,7 +1127,11 @@ int fsx492_getattr(
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
 
     // TODO:
-
+    //also make sure inode exists and is valid
+    if (validate_inode(ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_getattr: inode %u does not exist\n", ino);
+        return -ENOENT;
+    }
     // lookup inode (or skip lookup if handle already open in fi)
     uint32_t ino = 0; int ret = 0;
     if (fi && fi->fh) { //file handle exists from previous open
@@ -1077,11 +1143,6 @@ int fsx492_getattr(
             fprintf(stderr, "fsx492_getattr: lookup_path failed with %d\n", ret);
             return ret;
         }
-    }
-    //also make sure inode exists and is valid
-    if (validate_inode(ino, ctx) < 0) {
-        fprintf(stderr, "fsx492_getattr: inode %u does not exist\n", ino);
-        return -ENOENT;
     }
 
     // copy stat info to statbuf
