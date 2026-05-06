@@ -543,9 +543,15 @@ static int find_entry(
     // check if directory inode aint 0
     if (dir_ino == 0) {return -EINVAL;}
     //check if dis directory inode exists
-    if (validate_inode(dir_ino, ctx) < 0) {return -ENOENT;}
+    if (validate_inode(dir_ino, ctx) < 0) {
+        fprintf(stderr, "Directory inode %u does not exist\n", dir_ino);
+        return -ENOENT;
+    }
     struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];//gets dir inode struct
-    if (!S_ISDIR(dir_inode->mode)) {return -ENOTDIR;}//checks its acc a dir lol
+    if (!S_ISDIR(dir_inode->mode)) {
+        fprintf(stderr, "Inode %u is not a directory\n", dir_ino);
+        return -ENOTDIR;
+    }//checks its acc a dir lol
 
     //atp dir exists, is not 0, and is acc a dir. so search ts
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];//to hold a block of dir entries
@@ -560,10 +566,12 @@ static int find_entry(
         if (idx >= 0) {
             //found it!
             *ino = entries[idx].ino;
+            fprintf(stderr, "Found entry %s in directory inode %u with inode %u\n", name, dir_ino, *ino);
             return 0;
         }
     }
 
+    fprintf(stderr, "Entry %s not found in directory inode %u\n", name, dir_ino);
     return -ENOENT;//name dne in dir
 }
 
@@ -1549,17 +1557,24 @@ int fsx492_opendir(const char * path, struct fuse_file_info * fi)
     // look up the directory inode
     uint32_t ino = 0; int ret = lookup_path(path, &ino, NULL);
     if (ret < 0) {return ret;}//aka there was a failure
-    if (!S_ISDIR(ctx->inodes[ino].mode)) {return -ENOTDIR;}//check if it is a dir
+    if (!S_ISDIR(ctx->inodes[ino].mode)) {
+        fprintf(stderr, "fsx492_opendir: target is not a directory\n");
+        return -ENOTDIR;
+    }//check if it is a dir
 
     //getting here means its a dir with valid path
     // create a new file handle
     struct fh * handle = malloc(sizeof(struct fh));
-    if (!handle) {return -ENOSPC;}//check if malloc succeeded
+    if (!handle) {
+        fprintf(stderr, "fsx492_opendir: failed to allocate file handle\n");
+        return -ENOSPC;
+    }
     handle->ino = ino; handle->flags = fi->flags;
     // (optional) perform permissions checking
 
     // update fi with file handle
     fi->fh = (uint64_t)handle;
+    fprintf(stdout, "fsx492_opendir: opened directory %u: %s\n", ino, path);
 
     return 0;
 }
@@ -1617,6 +1632,7 @@ int fsx492_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
     fprintf(stdout, "fsx492_readdir: %s\n", path);
     if (!(fi && fi->fh)) {
         // bad file handle
+        fprintf(stderr, "fsx492_readdir: invalid file handle\n");
         return -EBADF;
     }
 
@@ -1625,6 +1641,7 @@ int fsx492_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
     struct fsx492_inode * dir_inode = &(ctx->inodes[ino]);
 
     if (!S_ISDIR(dir_inode->mode)) {
+        fprintf(stderr, "fsx492_readdir: target is not a directory\n");
         return -ENOTDIR;
     }
 
@@ -1635,6 +1652,7 @@ int fsx492_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
 
         // load the direct block of entries
         if (read_blks(dir_inode->direct_blks[i], 1, (void *)entries) < 0) {
+            fprintf(stderr, "fsx492_readdir: failed to read directory block\n");
             return -EIO;
         }
 
@@ -1646,8 +1664,8 @@ int fsx492_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
             filler(buf, entries[i].name, &statbuf, 0, 0);
         }
     }
-
     // limit directory entries to direct blocks, don't visit indirect
+    fprintf(stdout, "fsx492_readdir: finished reading directory %u: %s\n", ino, path);
 
     return 0;
 }
@@ -1686,6 +1704,7 @@ int fsx492_releasedir(const char * path, struct fuse_file_info * fi)
     // write back dirty metadata
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
     writeback_metadata(ctx);
+    fprintf(stdout, "fsx492_releasedir: released directory %s\n", path);
 
     return 0;
 }
