@@ -941,18 +941,52 @@ static int _unlink(
     // TODO:
 
     // load entries from disk and search for the entry
+    struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];
+    for (int i=0; i<FSX492_N_DIRECT; i++) {//go over all direct blocks of dir inode
+        uint32_t blkno = dir_inode->direct_blks[i];
+        if (validate_block(blkno, ctx) < 0) {continue;}//block aint valid/allocated so skip
+        if (read_blks(blkno, 1, (void *)entries) < 0) {//try to read block of entries into memory
+            fprintf(stderr, "unlink error: failed to read directory entries from disk\n");
+            return -EIO;
+        }
+        //getting here means block is valid/allocated so search it
+        for (int j=0; j<FSX492_DIRENTRIES_PER_BLK; j++) {
+            if (entries[j].valid && strcmp(entries[j].name, name) == 0) {
+                //we found it - so unlink it!
+                // invalidate the entry
+                uint32_t ino = entries[j].ino; entries[j].valid = 0;
 
-    // invalidate the entry
+                // write back modified entries
+                if (write_blks(blkno, 1, (void *)entries) < 0) {
+                    fprintf(stderr, "unlink error: failed to write directory entries to disk\n");
+                    return -EIO;
+                }
+                // change directory file size after writeback succeeds
+                dir_inode->size -= sizeof(struct fsx492_dirent);
+                dirty_inode(dir_ino, ctx);//dirty inode after mod
 
-    // write back modified entries
+                // decrement inode nlink
+                struct fsx492_inode * entry_inode = &ctx->inodes[ino];
+                entry_inode->nlink--;
+                dirty_inode(ino, ctx);//dirty inode after mod
 
-    // change directory file size after writeback succeeds
+                // delete inode if necessary
+                if (entry_inode->nlink == 0) {
+                    if (_truncate(ino, 0, ctx) < 0) {
+                        fprintf(stderr, "unlink error: failed to truncate inode %u\n", ino);
+                        return -EIO;
+                    }
+                    free_inode(ino, ctx);
+                }
 
-    // decrement inode nlink
-
-    // delete inode if necessary
-
-    return -ENOSYS;
+                fprintf(stderr, "Successfully unlinked entry %s from directory inode %u\n", name, dir_ino);
+                return 0;//success!
+            }
+        }
+    }
+    fprintf(stderr, "unlink error: entry %s not found in directory inode %u\n", name, dir_ino);
+    return -ENOENT;
 }
 
 
