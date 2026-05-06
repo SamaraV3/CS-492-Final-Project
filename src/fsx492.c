@@ -1228,16 +1228,37 @@ int fsx492_open(const char * path, struct fuse_file_info * fi)
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
 
     // TODO:
+    if (fi->fh) {
+        // file handle already exists from previous open
+        return 0;
+    }
 
     // lookup path and validate inode
+    uint32_t ino = 0;
+    int ret = lookup_path(path, &ino, NULL);
+    if (ret < 0) {//some failure with lookup
+        fprintf(stderr, "fsx492_open: lookup_path failed with %d\n", ret);
+        return ret;
+    }
+    if (validate_inode(ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_open: inode %u does not exist\n", ino);
+        return -ENOENT;
+    }//tho idt it ever gets this far - i think look_up path would fail in this case
 
     // (option: perform permissions checking)
 
     // create the file handle
+    struct fh * handle = malloc(sizeof(struct fh));
+    if (!handle) {
+        fprintf(stderr, "fsx492_open: failed to allocate file handle\n");
+        return -ENOSPC;
+    }
 
     // store file handle in fi->fh
+    handle->ino = ino; handle->flags= fi->flags;
+    fi->fh = handle;
 
-    return -ENOSYS;
+    return 0;
 }
 
 
