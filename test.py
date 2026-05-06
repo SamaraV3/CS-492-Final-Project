@@ -140,6 +140,41 @@ def test_directory_lookup(mountpoint):
     
     print("[test] passed directory lookup")
 
+#test 1: adding and removing files from subdirs
+def test_subdir_files(mountpoint):
+    """Test creating and deleting files in subdirectories"""
+    #create subdir
+    subdir = os.path.join(mountpoint, "subdir1")
+    os.mkdir(subdir)
+    #create file in subdir
+    subfile = os.path.join(subdir, "file1.txt")
+    with open(subfile, "w") as f:
+        f.write("subdir file content")
+    #check file exists
+    assert os.path.exists(subfile), "file not found in subdir"
+    #delete it
+    os.unlink(subfile)
+    assert not os.path.exists(subfile), "file still exists after deletion"
+    print("[test] passed subdir files")
+
+#test 6: update access/mod time
+def test_time_update(mountpoint):
+    """Test that access and mod times are updated correctly"""
+    import time
+    testfile = os.path.join(mountpoint, "hello.txt")
+    with open(testfile, "w") as f:
+        f.write("test")
+
+    #init times
+    st1 = os.stat(testfile)
+    time.sleep(1)
+
+    #then update access time ONLY - not mod time
+    os.utime(testfile, (time.time(), st1.st_mtime))
+    st2 = os.stat(testfile)
+    assert st2.st_atime > st1.st_atime, "access time not updated"
+    assert st2.st_mtime == st1.st_mtime, "mod time should not change"
+
 ##############################################################################
 # END TEST DEFINITIONS
 ##############################################################################

@@ -863,7 +863,7 @@ static int _link(
     int ret = find_entry(name, dir_ino, &dummy, ctx);
     if (ret == 0) {
         fprintf(stderr, "link error: name %s already exists in directory inode %u\n", name, dir_ino);
-        return -EEXISTS;
+        return -EEXIST;
     } else if (ret != -ENOENT) {//atp we know dir exists and name dne, so any error other than -ENOENT is a disk error
         fprintf(stderr, "link error: failed to search for name %s in directory inode %u\n", name, dir_ino);
         return ret;
@@ -1161,11 +1161,6 @@ int fsx492_getattr(
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
 
     // TODO:
-    //also make sure inode exists and is valid
-    if (validate_inode(ino, ctx) < 0) {
-        fprintf(stderr, "fsx492_getattr: inode %u does not exist\n", ino);
-        return -ENOENT;
-    }
     // lookup inode (or skip lookup if handle already open in fi)
     uint32_t ino = 0; int ret = 0;
     if (fi && fi->fh) { //file handle exists from previous open
@@ -1177,6 +1172,11 @@ int fsx492_getattr(
             fprintf(stderr, "fsx492_getattr: lookup_path failed with %d\n", ret);
             return ret;
         }
+    }
+        //also make sure inode exists and is valid
+    if (validate_inode(ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_getattr: inode %u does not exist\n", ino);
+        return -ENOENT;
     }
 
     // copy stat info to statbuf
@@ -1351,7 +1351,7 @@ int fsx492_open(const char * path, struct fuse_file_info * fi)
 
     // store file handle in fi->fh
     handle->ino = ino; handle->flags= fi->flags;
-    fi->fh = handle;
+    fi->fh = (uint64_t) handle;
 
     return 0;
 }
@@ -1656,20 +1656,95 @@ int fsx492_mkdir(const char * path, mode_t mode)
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
 
     // TODO:
-
+    //check name length
+    if (strlen(basename(path)) >= FSX492_FILENAMESZ) {
+        fprintf(stderr, "fsx492_mkdir: file name too long\n");
+        return -EINVAL;
+    }
+    //check if directory already exists at path
+    uint32_t ino = 0; uint32_t parent_ino = 0;
     // lookup parent directory path (see docs for `lookup_path`)
+    int ret = lookup_path(path, &ino, &parent_ino);
+    //check if dir alr exists at path
+    if (ret == 0) {
+        fprintf(stderr, "fsx492_mkdir: directory already exists at path\n");
+        return -EEXIST;
+    }
+    //otherwise it does not. check if there was another failure
+    if (ret != -ENOENT) {//not found error is expected since we r creating new dir so ignore
+        fprintf(stderr, "fsx492_mkdir: lookup_path failed with %d\n", ret);
+        return ret;
+    }
+    //check if parent_ino dne which we do not want
+    if (!parent_ino) {
+        fprintf(stderr, "fsx492_mkdir: parent directory does not exist\n");
+        return -ENOENT;
+    }
+    //also check that its a dir
+    if (!S_ISDIR(ctx->inodes[parent_ino].mode)) {
+        fprintf(stderr, "fsx492_mkdir: parent path component is not a directory\n");
+        return -ENOTDIR;
+    }
 
     // create a new directory inode
+    uint32_t dir_ino = 0;
+    if (alloc_inode(&dir_ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_mkdir: failed to allocate inode\n");
+        return -ENOSPC;
+    }
 
     // allocate space for directory entries
+    struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];
+    dir_inode->ino = dir_ino;
+    dir_inode->mode = mode | S_IFDIR;
+    dir_inode->uid = getuid();
+    dir_inode->gid = getgid();
+    dir_inode->size = 0;
+    dir_inode->nlink = 2; // `.` and `..` entries
+    dir_inode->blocks = 0;
+    dir_inode->ctime = dir_inode->mtime = dir_inode->atime = time(NULL);
+    for (int i=0; i<FSX492_N_DIRECT; i++) {dir_inode->direct_blks[i] = 0;}
+    dir_inode->indir1_blks = 0; dir_inode->indir2_blks = 0;
 
     // add `.` and `..` subdirectories
+    //since dir is new i gotta alloc blocks for these entries
+    uint32_t dir_blk = 0;
+    if (alloc_blk(&dir_blk, ctx) < 0) {
+        fprintf(stderr, "fsx492_mkdir: failed to allocate block for directory entries\n");
+        free_inode(dir_ino, ctx);
+        return -ENOSPC;
+    }
+    //block allocated, make space for 2 entries
+    dir_inode->direct_blks[0] = dir_blk; dir_inode->blocks=1;
+    dir_inode->size = 2 * sizeof(struct fsx492_dirent);
+    struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    //create the 2 entries
+    entries[0].valid = 1; entries[0].ino = dir_ino;
+    strncpy(entries[0].name, ".", FSX492_FILENAMESZ-1);
+    entries[0].name[FSX492_FILENAMESZ-1] = '\0';
+    entries[1].valid = 1; entries[1].ino = parent_ino;
+    strncpy(entries[1].name, "..", FSX492_FILENAMESZ-1);
+    entries[1].name[FSX492_FILENAMESZ-1] = '\0';
+    if (write_blks(dir_blk, 1, entries) < 0) {//write entries to disk
+        fprintf(stderr, "fsx492_mkdir: failed to write directory entries\n");
+        free_inode(dir_ino, ctx);
+        return -EIO;
+    }
+    dirty_inode(dir_ino, ctx);
 
     // link new directory to parent directory
-
+    if (_link(basename(path), dir_ino, parent_ino, ctx) < 0) {
+        fprintf(stderr, "fsx492_mkdir: failed to link new directory to parent directory\n");
+        //free block allocated for entries
+        free_blk(dir_blk, ctx);
+        free_inode(dir_ino, ctx);
+        return -EIO;
+    }
+    //also inc parent dir's nlink for new subdir
+    ctx->inodes[parent_ino].nlink++;
+    dirty_inode(parent_ino, ctx);
     // mark dirty inodes for writeback
-
-    return -ENOSYS;
+    return 0;
 }
 
 
