@@ -1516,10 +1516,17 @@ int fsx492_release(const char * path, struct fuse_file_info * fi)
     // TODO:
 
     // release resources from opened file (e.g. file handle)
+    if (!fi || !fi->fh) {
+        return 0; // nothing to release
+    }
+    struct fh * handle = (struct fh *)fi->fh;
+    free(handle);
+    fi->fh = 0;
 
     // write back metadata
+    writeback_metadata((struct context *)fuse_get_context()->private_data);
 
-    return -ENOSYS;
+    return 0;
 }
 
 
