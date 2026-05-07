@@ -1866,9 +1866,10 @@ int fsx492_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
 
     struct stat statbuf;
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    memset(entries, 0, sizeof(entries));
     
     for (int i = 0; i < FSX492_N_DIRECT; i++) {
-
+        if (dir_inode->direct_blks[i]) {continue;} //skip unalloc blocks
         // load the direct block of entries
         if (read_blks(dir_inode->direct_blks[i], 1, (void *)entries) < 0) {
             fprintf(stderr, "fsx492_readdir: failed to read directory block\n");
