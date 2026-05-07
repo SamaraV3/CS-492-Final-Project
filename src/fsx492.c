@@ -2012,18 +2012,56 @@ int fsx492_rmdir(const char * path)
     assert(path);
 
     // TODO:
-
-    // lookup directory inode
-
+    //first make sure path acc exists and get its inode and parent inode
+    uint32_t ino = 0, parent_ino = 0;
+    int ret = 0;
+    if ((ret = lookup_path(path, &ino, &parent_ino)) < 0) {
+        //some kinda error occured during lookup - which at least means path dne
+        fprintf(stderr, "fsx492_rmdir: lookup_path failed with %d\n", ret);
+        return ret;
+    }
     // confirm inode is directory
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    if (!S_ISDIR(ctx->inodes[ino].mode)) {
+        fprintf(stderr, "fsx492_rmdir: target is not a directory\n");
+        return -ENOTDIR;
+    }
 
-    // confirm directory is empty (only `.` and `..` entries)
+    // confirm directory is empty (only `.` and `..` entries) - so nlink = 2
+    // cuz rmdir aint meant to work on a non empty dir
+    if (ctx->inodes[ino].nlink > 2) {
+        fprintf(stderr, "fsx492_rmdir: directory is not empty\n");
+        return -ENOTEMPTY;
+    }
+    //then we gotta make sure the only entries are '.' and '..'
+    struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    memset(entries, 0, sizeof(entries));
+    for (int i=0; i<FSX492_DIRENTRIES_PER_BLK; i++) {
+        if (read_blks(ctx->inodes[ino].direct_blks[0], 1, (void *)entries) < 0) {
+            fprintf(stderr, "fsx492_rmdir: failed to read directory block\n");
+            return -EIO;
+        }
+            if (entries[i].valid) {
+                if (strcmp(entries[i].name, ".") != 0 && strcmp(entries[i].name, "..") != 0) {
+                    fprintf(stderr, "fsx492_rmdir: directory is not empty\n");
+                    return -ENOTEMPTY;
+                }
+            }
+    }
 
-    // remove `.` and `..` subdirectories
+    // remove `.` and `..` subdirectories - happens (essentially) at the end
 
     // unlink directory inode from parent
+    if ((ret = _unlink(basename(path), parent_ino, ctx)) < 0) {
+        fprintf(stderr, "fsx492_rmdir: failed to unlink directory from parent\n");
+        return ret;
+    }
+    &ctx->inodes[parent_ino].nlink--;//dec cuz parent's dir has 1 less link to it now that '..' is removed
+    dirty_inode(parent_ino, ctx);
+    _truncate(ino, 0, ctx);//frees all blocks used by dir
+    free_inode(ino, ctx);
 
-    return -ENOSYS;
+    return 0;
 }
 
 
