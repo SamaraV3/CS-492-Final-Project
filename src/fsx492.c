@@ -555,6 +555,7 @@ static int find_entry(
 
     //atp dir exists, is not 0, and is acc a dir. so search ts
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];//to hold a block of dir entries
+    memset(entries, 0, sizeof(entries));
     // search directory entries in direct_blks - aka N_DIRECT
     for (int i=0; i < FSX492_N_DIRECT; i++) {
         if (validate_block(dir_inode->direct_blks[i], ctx) < 0) {continue;}//if block not valid, skip
@@ -870,6 +871,7 @@ static int _link(
     }
     // load directory entries from disk - rn we know dir is valid and name is valid
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];//will hold 1 block of dir entries as we search for free entry
+    memset(entries, 0, sizeof(entries));
     for (int i=0; i<FSX492_N_DIRECT; i++) {
         uint32_t blkno = dir_inode->direct_blks[i];
         if (validate_block(blkno, ctx) < 0) {
@@ -942,6 +944,7 @@ static int _unlink(
 
     // load entries from disk and search for the entry
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    memset(entries, 0, sizeof(entries));
     struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];
     for (int i=0; i<FSX492_N_DIRECT; i++) {//go over all direct blocks of dir inode
         uint32_t blkno = dir_inode->direct_blks[i];
@@ -1718,6 +1721,7 @@ int fsx492_mkdir(const char * path, mode_t mode)
     dir_inode->direct_blks[0] = dir_blk; dir_inode->blocks=1;
     dir_inode->size = 2 * sizeof(struct fsx492_dirent);
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
+    memset(entries, 0, sizeof(entries));
     //create the 2 entries
     entries[0].valid = 1; entries[0].ino = dir_ino;
     strncpy(entries[0].name, ".", FSX492_FILENAMESZ-1);
