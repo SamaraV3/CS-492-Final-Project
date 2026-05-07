@@ -29,8 +29,8 @@ These are important helper functions.
 
 - [x] `search_block` (optional if not needed)
 - [x] `find_entry`
-- [ ] `_link`
-- [ ] `_unlink`
+- [x] `_link`
+- [x] `_unlink`
 
 ### FUSE Callbacks
 
@@ -42,7 +42,7 @@ They are listed in suggested order of implementation.
 - [x] `fsx492_getattr` (high priority)
 - [x] `fsx492_opendir` (high priority)
 - [x] `fsx492_releasedir` (high priority)
-- [ ] `fsx492_mkdir`
+- [x] `fsx492_mkdir`
 - [ ] `fsx492_rmdir`
 - [x] `fsx492_open`
 - [x] `fsx492_release`
