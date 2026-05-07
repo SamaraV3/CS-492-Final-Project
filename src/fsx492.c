@@ -2027,26 +2027,26 @@ int fsx492_rmdir(const char * path)
         return -ENOTDIR;
     }
 
-    // confirm directory is empty (only `.` and `..` entries) - so nlink = 2
+    // confirm directory is empty (only `.` and `..` entries) - so size should be 2 * sizeof(struct fsx492_dirent)
     // cuz rmdir aint meant to work on a non empty dir
-    if (ctx->inodes[ino].nlink > 2) {
+    if (ctx->inodes[ino].size > 2 * sizeof(struct fsx492_dirent)) {
         fprintf(stderr, "fsx492_rmdir: directory is not empty\n");
         return -ENOTEMPTY;
     }
     //then we gotta make sure the only entries are '.' and '..'
     struct fsx492_dirent entries[FSX492_DIRENTRIES_PER_BLK];
     memset(entries, 0, sizeof(entries));
-    for (int i=0; i<FSX492_DIRENTRIES_PER_BLK; i++) {
+    for (int i=0; i<FSX492_DIRENTRIES_PER_BLK; i++) {//only goes thru first block cuz thats where i alloc the '.' and '..'
         if (read_blks(ctx->inodes[ino].direct_blks[0], 1, (void *)entries) < 0) {
             fprintf(stderr, "fsx492_rmdir: failed to read directory block\n");
             return -EIO;
         }
-            if (entries[i].valid) {
-                if (strcmp(entries[i].name, ".") != 0 && strcmp(entries[i].name, "..") != 0) {
-                    fprintf(stderr, "fsx492_rmdir: directory is not empty\n");
-                    return -ENOTEMPTY;
-                }
+        if (entries[i].valid) {
+            if (strcmp(entries[i].name, ".") != 0 && strcmp(entries[i].name, "..") != 0) {
+                fprintf(stderr, "fsx492_rmdir: directory is not empty\n");
+                return -ENOTEMPTY;
             }
+        }
     }
 
     // remove `.` and `..` subdirectories - happens (essentially) at the end
@@ -2059,7 +2059,7 @@ int fsx492_rmdir(const char * path)
     &ctx->inodes[parent_ino].nlink--;//dec cuz parent's dir has 1 less link to it now that '..' is removed
     dirty_inode(parent_ino, ctx);
     _truncate(ino, 0, ctx);//frees all blocks used by dir
-    free_inode(ino, ctx);
+    free_inode(ino, ctx);//remove dir inode
 
     return 0;
 }
