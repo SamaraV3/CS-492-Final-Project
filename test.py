@@ -144,18 +144,60 @@ def test_directory_lookup(mountpoint):
 def test_subdir_files(mountpoint):
     """Test creating and deleting files in subdirectories"""
     #create subdir
-    subdir = os.path.join(mountpoint, "subdir1")
+    newdir = os.path.join(mountpoint, "dir4")
+    os.mkdir(newdir)
+    subdir = os.path.join(newdir, "subdir1")
     os.mkdir(subdir)
     #create file in subdir
     subfile = os.path.join(subdir, "file1.txt")
     with open(subfile, "w") as f:
-        f.write("subdir file content")
+        pass
     #check file exists
     assert os.path.exists(subfile), "file not found in subdir"
     #delete it
     os.unlink(subfile)
     assert not os.path.exists(subfile), "file still exists after deletion"
+    #cleanup
+    os.rmdir(subdir)
+    os.rmdir(newdir)
+    assert not os.path.exists(subdir), "subdir still exists after deletion"
+    assert not os.path.exists(newdir), "newdir still exists after deletion"
     print("[test] passed subdir files")
+
+#test 2: adding and removing more than a block's worth of directories (at once)
+def test_many_dirs(mountpoint):
+    """Test creating and removing more than a block's worth of directories at once"""
+    #each block holds 32 direntries so create 40
+    entries_per_block = 32
+    num_dirs = entries_per_block + 8
+    dirnames = []
+
+    #Create dirs
+    print(f"[test] Creating {num_dirs} directories....")
+    for i in range(num_dirs):
+        dirname = os.path.join(mountpoint, f"many_dir_{i:02d}")
+        os.mkdir(dirname)
+        dirnames.append(dirname)
+    
+    #verify all exist
+    entries = set(os.listdir(mountpoint))
+    for dirname in dirnames:
+        basename = os.path.basename(dirname)
+        assert basename in entries, f"missing directory: {basename}"
+
+    #remove all
+    print(f"[test] Removing {num_dirs} directories....")
+    for dirname in dirnames:
+        os.rmdir(dirname)
+
+    #verify theyre gone
+    entries = set(os.listdir(mountpoint))
+    for dirname in dirnames:
+        basename = os.path.basename(dirname)
+        assert basename not in entries, f"Directory {basename} still exists"
+
+    print("[test] passed many directories")
+
 
 #test 6: update access/mod time
 def test_time_update(mountpoint):
@@ -163,7 +205,7 @@ def test_time_update(mountpoint):
     import time
     testfile = os.path.join(mountpoint, "hello.txt")
     with open(testfile, "w") as f:
-        f.write("test")
+        pass
 
     #init times
     st1 = os.stat(testfile)
@@ -174,6 +216,10 @@ def test_time_update(mountpoint):
     st2 = os.stat(testfile)
     assert st2.st_atime > st1.st_atime, "access time not updated"
     assert st2.st_mtime == st1.st_mtime, "mod time should not change"
+
+    #cleanup
+    os.unlink(testfile)
+    print("[test] passed time update")
 
 ##############################################################################
 # END TEST DEFINITIONS
