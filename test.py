@@ -171,16 +171,18 @@ def test_many_dirs(mountpoint):
     entries_per_block = 32
     num_dirs = entries_per_block + 8
     dirnames = []
+    test_root = os.path.join(mountpoint, "many_dirs_test_root")
+    os.mkdir(test_root)
 
     #Create dirs
     print(f"[test] Creating {num_dirs} directories....")
     for i in range(num_dirs):
-        dirname = os.path.join(mountpoint, f"many_dir_{i:02d}")
+        dirname = os.path.join(test_root, f"many_dir_{i:02d}")
         os.mkdir(dirname)
         dirnames.append(dirname)
     
     #verify all exist
-    entries = set(os.listdir(mountpoint))
+    entries = set(os.listdir(test_root))
     for dirname in dirnames:
         basename = os.path.basename(dirname)
         assert basename in entries, f"missing directory: {basename}"
@@ -191,22 +193,24 @@ def test_many_dirs(mountpoint):
         os.rmdir(dirname)
 
     #verify theyre gone
-    entries = set(os.listdir(mountpoint))
+    entries = set(os.listdir(test_root))
     for dirname in dirnames:
         basename = os.path.basename(dirname)
         assert basename not in entries, f"Directory {basename} still exists"
+    os.rmdir(test_root)
+    assert not os.path.exists(test_root), "test root still exists after deletion"
 
     print("[test] passed many directories")
-
 
 #test 6: update access/mod time
 def test_time_update(mountpoint):
     """Test that access and mod times are updated correctly"""
     import time
-    testfile = os.path.join(mountpoint, "hello.txt")
+    testfile = os.path.join(mountpoint, "time_test_temp.txt")
     with open(testfile, "w") as f:
         pass
 
+    time.sleep(0.1)
     #init times
     st1 = os.stat(testfile)
     time.sleep(1)

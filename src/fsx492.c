@@ -558,7 +558,7 @@ static int find_entry(
     memset(entries, 0, sizeof(entries));
     // search directory entries in direct_blks - aka N_DIRECT
     for (int i=0; i < FSX492_N_DIRECT; i++) {
-        if (validate_block(dir_inode->direct_blks[i], ctx) < 0) {continue;}//if block not valid, skip
+        if (dir_inode->direct_blks[i] == 0 || validate_block(dir_inode->direct_blks[i], ctx) < 0) {continue;}//if block not valid or is superblock, skip
         //block is valid - get it
         uint32_t blk = dir_inode->direct_blks[i];
         if (read_blks(blk, 1, (void *)entries) < 0) {return -EIO;}//read block into entries array
@@ -874,9 +874,12 @@ static int _link(
     memset(entries, 0, sizeof(entries));
     for (int i=0; i<FSX492_N_DIRECT; i++) {
         uint32_t blkno = dir_inode->direct_blks[i];
-        if (validate_block(blkno, ctx) < 0) {
+        fprintf(stderr, "_link: checking slot %d, blkno=%u\n", i, blkno);
+        if (blkno == 0 || validate_block(blkno, ctx) < 0) {//also checks if its a superblock cuz superblocks are invalid blocks for data
             //block is not allocated so we can use it for new entry
+            fprintf(stderr, "_link: block %u is invalid, allocating new block\n", blkno);
             int ret = alloc_blk(&blkno, ctx);
+            fprintf(stderr, "_link: alloc_blk returned %d, new blkno=%u\n", ret, blkno); //another debug print
             if (ret < 0) {
                 fprintf(stderr, "link error: failed to allocate block for directory entries\n");
                 return ret;
@@ -885,9 +888,11 @@ static int _link(
             dir_inode->direct_blks[i] = blkno;
             dir_inode->blocks++;
             dirty_inode(dir_inode->ino, ctx);
+            fprintf(stderr, "_link: set direct_blks[%d] = %u\n", i, blkno);
         }
     
         //a block is allocated so find a free directory entry (allocate new blocks as needed)
+        fprintf(stderr, "_link: reading block %u\n", blkno);
         if (read_blks(blkno, 1, (void *)entries) < 0) {
             fprintf(stderr, "link error: failed to read directory entries from disk\n");
             return -EIO;
@@ -900,6 +905,7 @@ static int _link(
                 strncpy(entries[j].name, name, FSX492_FILENAMESZ-1);
                 entries[j].name[FSX492_FILENAMESZ-1] = '\0';//gotta null term
                 // write back modified entry to disk
+                fprintf(stderr, "_link: writing to block %u, disk size %u\n", blkno, ctx->n_blocks);//debug line
                 if (write_blks(blkno, 1, (void *)entries) < 0) {
                     fprintf(stderr, "link error: failed to write directory entries to disk\n");
                     return -EIO;
@@ -948,7 +954,7 @@ static int _unlink(
     struct fsx492_inode * dir_inode = &ctx->inodes[dir_ino];
     for (int i=0; i<FSX492_N_DIRECT; i++) {//go over all direct blocks of dir inode
         uint32_t blkno = dir_inode->direct_blks[i];
-        if (validate_block(blkno, ctx) < 0) {continue;}//block aint valid/allocated so skip
+        if (blkno == 0 || validate_block(blkno, ctx) < 0) {continue;}//block aint valid/allocated so skip
         if (read_blks(blkno, 1, (void *)entries) < 0) {//try to read block of entries into memory
             fprintf(stderr, "unlink error: failed to read directory entries from disk\n");
             return -EIO;
