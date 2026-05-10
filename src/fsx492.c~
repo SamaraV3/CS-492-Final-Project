@@ -2056,17 +2056,10 @@ int fsx492_rmdir(const char * path)
         fprintf(stderr, "fsx492_rmdir: failed to unlink directory from parent\n");
         return ret;
     }
-    ctx->inodes[parent_ino].nlink--;//dec cuz parent's dir has 1 less link to it now that '..' is removed
+    &ctx->inodes[parent_ino].nlink--;//dec cuz parent's dir has 1 less link to it now that '..' is removed
     dirty_inode(parent_ino, ctx);
-
-    //free dir's 1 block - manual cuz using truncate may have been what gave me errors
-    if (ctx->inodes[ino].direct_blks[0] != 0) {
-        free_blk(ctx->inodes[ino].direct_blks[0], ctx);
-    }
-    ctx->inodes[ino].blocks = 0;
-    ctx->inodes[ino].size = 0;
-    ctx->inodes[ino].direct_blks[0] = 0;
-    dirty_inode(ino, ctx);
+    _truncate(ino, 0, ctx);//frees all blocks used by dir
+    free_inode(ino, ctx);//remove dir inode
 
     return 0;
 }
