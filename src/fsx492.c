@@ -1557,6 +1557,13 @@ int fsx492_read(const char * path, char * buf, size_t size,
  * Unless FUSE_CAP_HANDLE_KILLPRIV is disabled, this method is
  * expected to reset the setuid and setgid bits.
  */
+
+/*char * getBtyeId(struct fsx492_inode* inode, long byteOffset){
+    --failed idea , but referencing it
+    for (int i = 0; i < FSX492_N_DIRECT; i++){
+        if (byteOffset < FSX492_BLKSZ) return 
+    }
+}*/
 int fsx492_write(const char * path, const char * buf, size_t size,
     off_t offset, struct fuse_file_info * fi)
 {
@@ -1566,21 +1573,78 @@ int fsx492_write(const char * path, const char * buf, size_t size,
     assert(fi);
 
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
-    
+
     // TODO:
 
     // validate file handle
+    int ino = ((struct fh *)fi->fh)->ino;
+    fprintf(stderr, "fsx492_read: reading inode %u\n", ino);
+
+    if (validate_inode(ino, ctx) < 0) {
+        return -EBADF;
+    }
+
+    struct fsx492_inode * inode = &ctx->inodes[ino];
+
+    if (S_ISDIR(inode->mode)) return -EISDIR;
+    if (offset >= inode->size) return 0;
+
+    if (offset + size >= inode->size) {
+        size = inode->size - offset;
+    }
 
     // write to direct blocks if needed (allocate space as needed)
-
+    long writeptr = offset;
+    long bitesWritten = 0;
+    long target = offset + size;
+    while (writeptr < FSX492_BLKSZ*FSX492_N_DIRECT && writeptr < target) {
+        long inblock = writeptr /  (long)(FSX492_BLKSZ);
+        long start = writeptr - inblock*FSX492_BLKSZ
+        if (inblock >= inode->blocks) {
+            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
+            inode->blocks+=1;
+        }
+        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        bitesWritten += FSX492_BLKSZ-start;
+        inblock += 1;
+        writeptr = FSX492_BLKSZ*inblock;
+    }
     // write to indir1 blocks if needed (allocate space as needed)
-
+    long indirBase = FSX492_N_DIRECT //in BLOCKS
+    long indirEnd = indirBase + FSX492_BLKSZ/sizeof(uint32_t) //in BLOCKS
+    while (writeptr < target) {
+        long inblock = writeptr /  (long)(FSX492_BLKSZ);
+        if (inblock > indirEnd) break;
+        long start = writeptr - inblock*FSX492_BLKSZ
+        if (inblock >= inode->blocks) {
+            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
+            inode->blocks+=1;
+        }
+        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        bitesWritten += FSX492_BLKSZ-start;
+        inblock += 1;
+        writeptr = FSX492_BLKSZ*inblock;
+    }
     // write to indir2 blocks if needed (allocate space as needed)
-
+    long indir2Base = indirEnd //in BLOCKS
+    long indir2End = indir2Base + (FSX492_BLKSZ/sizeof(uint32_t)) * (FSX492_BLKSZ/sizeof(uint32_t)) //in BLOCKS
+    while (writeptr < target) {
+        long inblock = writeptr /  (long)(FSX492_BLKSZ);
+        if (inblock > indirEnd) break;
+        long start = writeptr - inblock*FSX492_BLKSZ
+        if (inblock >= inode->blocks) {
+            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
+            inode->blocks+=1;
+        }
+        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        bitesWritten += FSX492_BLKSZ-start;
+        inblock += 1;
+        writeptr = FSX492_BLKSZ*inblock;        
+    }
     // update inode and mark dirty
-
-
-    return -ENOSYS;
+    inode->size = target
+    inode->mtime = now()//??
+    return size;
 }
 
 
