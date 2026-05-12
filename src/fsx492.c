@@ -160,8 +160,9 @@ static inline int clear_blks(uint32_t start, uint32_t n)
  */
 static inline int validate_block(uint32_t blkno, struct context * ctx)
 {
-    return !FD_ISSET(blkno, ctx->block_map) ? -EINVAL : 0;
+    return (!blkno || !FD_ISSET(blkno, ctx->block_map)) ? -EINVAL : 0;
 }
+
 
 /**
  * @brief      allocate a block
@@ -235,9 +236,8 @@ static inline size_t count_avail_blks(struct context * ctx)
  */
 static inline int validate_inode(uint32_t ino, struct context * ctx)
 {
-    return !FD_ISSET(ino, ctx->inode_map) ? -EINVAL : 0;
+    return (!ino || !FD_ISSET(ino, ctx->inode_map)) ? -EINVAL : 0;
 }
-
 
 /**
  * @brief      allocates an inode
