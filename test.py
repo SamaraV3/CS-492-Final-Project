@@ -7,6 +7,7 @@ import tempfile
 import shutil
 import signal
 import sys
+from random import randint
 
 # -------- CONFIG --------
 FUSE_BINARY = "fsx492"          # your compiled FS
@@ -221,10 +222,10 @@ def test_overwriting_file(mountpoint):
 
     print("[test] passed overwriting file")
 
-#test 3:  opening a file in "append" mode (see `open` behavior)
+#test 4:  opening a file in "append" mode (see `open` behavior)
 def test_appending_file(mountpoint):
     """Test opening a file and appending to it"""
-    fname =  os.path.join(mountpoint,"ow.txt")
+    fname =  os.path.join(mountpoint,"ap.txt")
     with open(fname,"w") as f:
         f.write("This is the file contents before appending. ")
     with open(fname,"r") as f:
@@ -264,6 +265,24 @@ def test_time_update(mountpoint):
     #cleanup
     os.unlink(testfile)
     print("[test] passed time update")
+
+#test 7: changing permissions
+def test_changing_permissions(mountpoint):
+    """Test chmod"""
+    fname = os.path.join(mountpoint, "ch.txt")
+    with open(fname, "w") as f:
+        pass
+    for _ in range(0,5):
+        targetperm = randint(0,7)*64 + randint(0,7)*8 + randint(0,7) ;
+        os.chmod(fname,targetperm)
+        realperm = os.stat(fname).st_mode &  (7*64 + 7*8  +7)
+        assert (targetperm == realperm), "Permission change failed"
+    
+    os.unlink(fname)
+    print("[test] passed changing permissions")
+    
+        
+
 
 ##############################################################################
 # END TEST DEFINITIONS
