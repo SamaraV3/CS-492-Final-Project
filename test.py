@@ -219,7 +219,7 @@ def test_overwriting_file(mountpoint):
         for line in f:
             assert(line == "This is the file contents after overwriting"), "Overwrite: failure"
         
-
+    os.unlink(fname)
     print("[test] passed overwriting file")
 
 #test 4:  opening a file in "append" mode (see `open` behavior)
@@ -238,11 +238,28 @@ def test_appending_file(mountpoint):
         for line in f:
             assert(line == "This is the file contents before appending. This is the file contents after appending."), "Append: failure"
         
-
+    os.unlink(fname)
     print("[test] passed appending file")
 
+#test 5: counting hard links
+def test_counting_hlink(mountpoint):
+    basef =  os.path.join(mountpoint,"hl.txt")
+    with open(basef,"w") as f:
+        pass
 
-    
+    for i in range(0,3):
+        lname = os.path.join(mountpoint,"L" + str(i))
+        os.link(basef,lname)
+        assert os.stat(basef).st_nlink == os.stat(lname).st_nlink == (i+1), "Link: failure to count hard links"
+
+    for i in range(3,0,-1):
+        os.unlink(os.path.join(mountpoint,"L" + str(i)))      
+        assert os.stat(basef).st_nlink  == (i+1), "Unlink: failure to count hard links"
+
+    os.unlink(basef)
+    print("[test] passed counting hard links of file")
+       
+   
 #test 6: update access/mod time
 def test_time_update(mountpoint):
     """Test that access and mod times are updated correctly"""
