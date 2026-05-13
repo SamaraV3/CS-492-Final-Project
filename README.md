@@ -46,7 +46,7 @@ They are listed in suggested order of implementation.
 - [x] `fsx492_rmdir`
 - [x] `fsx492_open`
 - [x] `fsx492_release`
-- [ ] `fsx492_write` (difficult)
+- [-] `fsx492_write` (difficult)
 - [ ] `fsx492_link`
 - [ ] `fsx492_chmod`
 
