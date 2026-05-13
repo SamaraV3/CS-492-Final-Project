@@ -202,6 +202,46 @@ def test_many_dirs(mountpoint):
 
     print("[test] passed many directories")
 
+#test 3:  overwriting a file (see `open` behavior)
+def test_overwriting_file(mountpoint):
+    """Test opening a file and writing to it"""
+    fname =  os.path.join(mountpoint,"ow.txt")
+    with open(fname,"w") as f:
+        f.write("This is the file contents before overwriting")
+    with open(fname,"r") as f:
+        for line in f:
+            assert (line == "This is the file contents before overwriting"), "Initial write: failure"
+
+    with open(fname,"w") as f:
+        f.write("This is the file contents after overwriting")    
+    with open(fname,"r") as f:
+        for line in f:
+            assert(line == "This is the file contents after overwriting"), "Overwrite: failure"
+        
+
+    print("[test] passed overwriting file")
+
+#test 3:  opening a file in "append" mode (see `open` behavior)
+def test_appending_file(mountpoint):
+    """Test opening a file and appending to it"""
+    fname =  os.path.join(mountpoint,"ow.txt")
+    with open(fname,"w") as f:
+        f.write("This is the file contents before appending. ")
+    with open(fname,"r") as f:
+        for line in f:
+            assert (line == "This is the file contents before appending. "), "Initial write: failure"
+
+    with open(fname,"a") as f:
+        f.write("This is the file contents after appending.")    
+    with open(fname,"r") as f:
+        for line in f:
+            assert(line == "This is the file contents before appending. This is the file contents after appending."), "Append: failure"
+        
+
+    print("[test] passed appending file")
+
+
+    
 #test 6: update access/mod time
 def test_time_update(mountpoint):
     """Test that access and mod times are updated correctly"""
@@ -230,7 +270,7 @@ def test_time_update(mountpoint):
 ##############################################################################
 
 TESTS = {
-    k.lstrip('test_'): v for k, v in globals().items() if k.startswith('test_')
+    k[5:] : v for k, v in globals().items() if k.startswith('test_')
 }
 
 
