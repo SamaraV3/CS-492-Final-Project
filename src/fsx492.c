@@ -1558,12 +1558,26 @@ int fsx492_read(const char * path, char * buf, size_t size,
  * expected to reset the setuid and setgid bits.
  */
 
-/*char * getBtyeId(struct fsx492_inode* inode, long byteOffset){
-    --failed idea , but referencing it
-    for (int i = 0; i < FSX492_N_DIRECT; i++){
-        if (byteOffset < FSX492_BLKSZ) return 
+
+int editBlk(uint32_t blkID, int start, char* buf, int bufOffset){
+    if (start){
+        // if start != 0, will have to split the block in 2 parts, and write to part of it
+        char blkBuf[FSX492_BLKSZ];
+        if (read_blks(blkID, 1, blkBuf) < 0) return -EIO;
+        memcpy(blkBuf + start, buf + bufOffset, FSX492_BLKSZ-start);
+        if (write_blks(blkID, 1, blkBuf) < 0) return -EIO;              
+    }else{
+        // if start does equal 0, will write to it in one shot
+        write_blks(blkID, 1, buf+bufOffset);
     }
-}*/
+    return 0;
+}
+int dealloc(){
+
+};
+
+
+#define cp2ip(X) ((uint32_t*)(void*)(X))
 int fsx492_write(const char * path, const char * buf, size_t size,
     off_t offset, struct fuse_file_info * fi)
 {
@@ -1574,12 +1588,11 @@ int fsx492_write(const char * path, const char * buf, size_t size,
 
     struct context * ctx = (struct context *)fuse_get_context()->private_data;
 
-    // TODO:
 
-    // validate file handle
-    int ino = ((struct fh *)fi->fh)->ino;
-    fprintf(stderr, "fsx492_read: reading inode %u\n", ino);
-
+    // validate file handle and other arguments
+    struct fh * fhandle = (struct fh *)fi->fh;
+    uint32_t ino = fhandle->ino;
+    fprintf(stderr, "fsx492_write: writing inode %u\n", ino);
     if (validate_inode(ino, ctx) < 0) {
         return -EBADF;
     }
@@ -1587,64 +1600,120 @@ int fsx492_write(const char * path, const char * buf, size_t size,
     struct fsx492_inode * inode = &ctx->inodes[ino];
 
     if (S_ISDIR(inode->mode)) return -EISDIR;
-    if (offset >= inode->size) return 0;
+    if (offset > inode->size) return -EINVAL;
+    if (fhandle->flags & O_APPEND) offset = inode->size;
 
-    if (offset + size >= inode->size) {
-        size = inode->size - offset;
-    }
-
+    int errcatch;
     // write to direct blocks if needed (allocate space as needed)
     long writeptr = offset;
     long bitesWritten = 0;
     long target = offset + size;
     while (writeptr < FSX492_BLKSZ*FSX492_N_DIRECT && writeptr < target) {
         long inblock = writeptr /  (long)(FSX492_BLKSZ);
-        long start = writeptr - inblock*FSX492_BLKSZ
+        long start = writeptr - inblock*FSX492_BLKSZ;
         if (inblock >= inode->blocks) {
-            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
+            if (errcatch = alloc_blk(&inode->direct_blks[inblock], ctx)) return errcatch;
             inode->blocks+=1;
         }
-        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        if (errcatch = editBlk(inode->direct_blks[inblock],start,buf,bitesWritten)) return errcatch;
+
         bitesWritten += FSX492_BLKSZ-start;
         inblock += 1;
         writeptr = FSX492_BLKSZ*inblock;
     }
+    
     // write to indir1 blocks if needed (allocate space as needed)
-    long indirBase = FSX492_N_DIRECT //in BLOCKS
-    long indirEnd = indirBase + FSX492_BLKSZ/sizeof(uint32_t) //in BLOCKS
+    long indirBase = FSX492_N_DIRECT; //in BLOCKS
+    long indirEnd = indirBase + FSX492_BLKSZ/sizeof(uint32_t); //in BLOCKS
+    char indirBlkData[FSX492_BLKSZ];
+    if (writeptr<target && inode->indir1_blks) if (errcatch = read_blks(inode->indir1_blks, 1, indirBlkData)) return errcatch;
+
+    char modifiedInDir = 0;
     while (writeptr < target) {
         long inblock = writeptr /  (long)(FSX492_BLKSZ);
-        if (inblock > indirEnd) break;
-        long start = writeptr - inblock*FSX492_BLKSZ
-        if (inblock >= inode->blocks) {
-            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
-            inode->blocks+=1;
+        if (inblock >= indirEnd) break;
+        long start = writeptr - inblock*FSX492_BLKSZ;
+
+        //ALLOCATIONS
+        if (!(inode->indir1_blks )) {
+            if (errcatch = alloc_blk(&inode->indir1_blks, ctx)) return errcatch;
+            if (errcatch = read_blks(inode->indir1_blks, 1, indirBlkData)) return errcatch;
+            modifiedInDir = true;
         }
-        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        if (inblock >= inode->blocks) {
+            if (errcatch = alloc_blk(cp2ip(indirBlkData) + (inblock - indirBase), ctx)) return errcatch;
+            inode->blocks+=1;
+            modifiedInDir = true;
+        }
+
+        //UPDATE
+        if (errcatch = editBlk(cp2ip(indirBlkData)[inblock - indirBase],start,buf,bitesWritten)) return errcatch;        
         bitesWritten += FSX492_BLKSZ-start;
         inblock += 1;
         writeptr = FSX492_BLKSZ*inblock;
     }
+
+    //update the indirect block with any changes made to indirBlkData
+    if (modifiedInDir) if (errcatch = editBlk(inode->indir1_blks,0,indirBlkData,0)) return errcatch;
+
+
     // write to indir2 blocks if needed (allocate space as needed)
+    {//extra set of brackets for scoping reasons
     long indir2Base = indirEnd //in BLOCKS
     long indir2End = indir2Base + (FSX492_BLKSZ/sizeof(uint32_t)) * (FSX492_BLKSZ/sizeof(uint32_t)) //in BLOCKS
-    while (writeptr < target) {
+    char indir2BlkData[FSX492_BLKSZ];
+    if (writeptr<target && inode->indir2_blks) if (errcatch = read_blks(inode->indir2_blks, 1, indir2BlkData)) return errcatch;
+
+    long indirBase = indirEnd; //in BLOCKS
+    long indirEnd = indirBase + FSX492_BLKSZ/sizeof(uint32_t); //in BLOCKS
+    char indirBlkData[FSX492_BLKSZ];
+    if (writeptr<target && cp2ip(indir2BlkData)[0]) if (errcatch = read_blks(cp2ip(indir2BlkData)[0], 1, indirBlkData)) return errcatch;
+    char modifiedInDir2 = false;
+    char modifiedInDir = false;
+    int indir2idx = 0;
+    while (writeptr < target){
         long inblock = writeptr /  (long)(FSX492_BLKSZ);
-        if (inblock > indirEnd) break;
-        long start = writeptr - inblock*FSX492_BLKSZ
-        if (inblock >= inode->blocks) {
-            inode->direct_blks[inblock] =  alloc_blk(/*IDK*/, /*some context?*/);
-            inode->blocks+=1;
+        if (inblock >= indir2End) return -EINVAL;
+
+        //ALLOCS
+        if (!inode->indir2_blks){
+            if (errcatch = alloc_blk(&inode->indir2_blks, ctx)) return errcatch;
+            if (errcatch = read_blks(inode->indir2_blks, 1, indir2BlkData)) return errcatch;
+            modifiedInDir2 = true;
         }
-        write_blk(/*??*/,start,FSX492_BLKSZ-start,buf+bitesWritten);
+        if (inblock >= indirEnd) {
+            //move to next indir block in the indir2 block
+            if (modifiedInDir) if (errcatch = editBlk(cp2ip(indir2BlkData)[indir2idx],0,indirBlkData,0)) return errcatch;
+            modifiedInDir = false;
+            indirBase = indirEnd;
+            indirEnd = indirBase + FSX492_BLKSZ/sizeof(uint32_t);
+            indir2idx++;
+            if (writeptr<target && cp2ip(indir2BlkData)[indir2idx]) {
+                if (errcatch = read_blks(cp2ip(indir2BlkData)[indir2idx], 1, indirBlkData)) return errcatch;
+            }else {
+                if (errcatch = alloc_blk(cp2ip(indir2BlkData) + indir2idx, ctx)) return errcatch;
+            }
+        }
+        if (inblock >= inode->blocks) {
+            if (errcatch = alloc_blk(cp2ip(indirBlkData) + (inblock - indirBase), ctx)) return errcatch;
+            inode->blocks+=1;
+            modifiedInDir = true;
+        }
+
+        //UPDATE
+        long start = writeptr - inblock*FSX492_BLKSZ;
+        if (errcatch = editBlk(cp2ip(indirBlkData)[inblock - indirBase],start,buf,bitesWritten)) return errcatch;        
         bitesWritten += FSX492_BLKSZ-start;
         inblock += 1;
-        writeptr = FSX492_BLKSZ*inblock;        
+        writeptr = FSX492_BLKSZ*inblock;   
+    }
+    if (modifiedInDir2) if (errcatch = editBlk(inode->indir2_blks,0,indir2BlkData,0)) return errcatch;
     }
     // update inode and mark dirty
-    inode->size = target
-    inode->mtime = now()//??
-    return size;
+    inode->mtime = time(NULL);
+    _truncate(inode->ino, size, ctx);    
+    dirty_inode(ino, ctx);
+    return  bitesWritten;
 }
 
 
