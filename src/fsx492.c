@@ -2083,16 +2083,29 @@ int fsx492_releasedir(const char * path, struct fuse_file_info * fi)
  *             -EINVAL  if name too long
  */
 int fsx492_link(const char * oldpath, const char * newpath)
+int fsx492_link(const char * oldpath, const char * newpath)
 {
     fprintf(stdout, "fsx492_link: %s -> %s\n", newpath, oldpath);
     assert(oldpath);
     assert(newpath);
 
-    // lookup paths
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    int errcatch;
 
-    // link old inode to new directory inode
+    //source must exist and must not be a directory
+    uint32_t old_ino = 0;
+    if ((errcatch = lookup_path(oldpath, &old_ino, NULL)) < 0) return errcatch;
+    if (S_ISDIR(ctx->inodes[old_ino].mode)) return -EISDIR;
 
-    return -ENOSYS;
+    // destination parent must exist, target must not
+    uint32_t new_ino = 0, new_parent_ino = 0;
+    if ((errcatch = lookup_path(newpath, &new_ino, &new_parent_ino)) <=0) {
+        if (errcatch == 0) return -EEXIST;     // "success" means failure here- should not be found
+        if (errcatch != -ENOENT) return errcatch;     //ENOENT is *wanted* here
+    };
+
+    if (ctx->inodes[old_ino].nlink == UINT16_MAX) return -EMLINK;    // check for overflow
+    return _link(basename(newpath), old_ino, new_parent_ino, ctx);
 }
 
 
