@@ -2355,16 +2355,23 @@ int fsx492_rename(
  */
 int fsx492_chmod(const char * path, mode_t mode, struct fuse_file_info * fi)
 {
-    fprintf(stdout, "fsx492_chmod: %s\n", path);
+    fprintf(stdout, "fsx492_chmod: %s (mode=%o)\n", path, mode);
     assert(path);
 
-    // TODO:
 
-    // lookup inode
+    //get inode number
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    int errcatch;
+    uint32_t inodeID = 0;
+    if (fi) inodeID = ((struct fh *)fi->fh)->ino;
+    else if ((errcatch = lookup_path(path, &ino, NULL)) < 0) return errcatch;
 
-    // update mode bits (directories and regular files only)
-
-    return -ENOSYS;
+    //change permissions
+    struct fsx492_inode * inode = ctx->inodes + ino
+    inode->mode = (ctx->inodes[ino].mode & S_IFMT) | (mode & ~S_IFMT); //use SIFMT flag
+    inode->ctime = time(NULL);
+    dirty_inode(ino, ctx);
+    return 0;
 }
 
 

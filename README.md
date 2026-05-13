@@ -48,7 +48,7 @@ They are listed in suggested order of implementation.
 - [x] `fsx492_release`
 - [-] `fsx492_write` (difficult)
 - [x] `fsx492_link`
-- [ ] `fsx492_chmod`
+- [x] `fsx492_chmod`
 
 For additional features:
 (Note that these functions do not exist in the template, you must add them.)
