@@ -1029,6 +1029,10 @@ struct fuse_operations fsx492_ops = {
     .write      = fsx492_write,
     .release    = fsx492_release,
     .statfs     = fsx492_statfs,
+
+    ////
+    .symlink = fsx492_symlink,
+
 };
 
 
@@ -2083,7 +2087,6 @@ int fsx492_releasedir(const char * path, struct fuse_file_info * fi)
  *             -EINVAL  if name too long
  */
 int fsx492_link(const char * oldpath, const char * newpath)
-int fsx492_link(const char * oldpath, const char * newpath)
 {
     fprintf(stdout, "fsx492_link: %s -> %s\n", newpath, oldpath);
     assert(oldpath);
@@ -2455,4 +2458,62 @@ int fsx492_statfs(const char * path, struct statvfs * st)
     st->f_namemax = FSX492_FILENAMESZ - 1;
 
     return 0;
+}
+
+
+
+int fsx492_symlink(const char * path, const char * softpath) {
+
+    fprintf(stdout, "fsx492_symlink: %s -> %s\n", softpath, path);
+    assert(path);
+    assert(softpath);
+
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    int errcatch;
+
+    // softpath's parent must exist, softpath itself must not. same idea as hardlink
+    uint32_t new_ino = 0, parent_ino = 0;
+    errcatch = lookup_path(softpath, &new_ino, &parent_ino);
+    if (!parent_ino)    return -ENOENT;
+        if ((errcatch = lookup_path(softpath, &new_ino, &new_parent_ino)) <=0) {
+        if (errcatch == 0) return -EEXIST;     // "success" means failure here- should not be found
+        if (errcatch != -ENOENT) return errcatch;     //ENOENT is *wanted* here
+    };
+
+    // check name length
+    if (strlen(basename(softpath)) >= FSX492_FILENAMESZ) return -EINVAL;
+
+    // allocate a new inode for the symlink
+    uint32_t link_ino = 0;
+    if ((errcatch = alloc_inode(&link_ino, ctx)) < 0) return errcatch;
+
+
+    //set all inodes attributes
+    struct fsx492_inode* inode = &ctx->inodes[link_ino];
+    inode->ino   = link_ino;
+    inode->mode  = S_IFLNK | 0777;
+    inode->uid   = fuse_get_context()->uid;
+    inode->gid   = fuse_get_context()->gid;
+    inode->nlink = 1;
+
+    //clear blocks
+    inode->atime = time(NULL), inode->ctime = time(NULL), inode->mtime = time(NULL);
+    for (int i = 1 ; i < FSX492_N_DIRECT;i++)  inode->direct_blk[i] =  0; 
+    inode->indir1_blks = 0;
+    inode->indir2_blks = 0;
+
+    //write path to inode
+    size_t pathlen = strlen(path) + 1;  
+    uint32_t blkno = 0;
+    if ((errcatch = alloc_blk(&blkno, ctx)) < 0) return errcatch;
+    char blkbuf[FSX492_BLKSZ] = {0};
+    memcpy(blkbuf, path, pathlen);
+    if (write_blks(blkno, 1, blkbuf) < 0) return -EIO;
+    
+    //finalize and link
+    inode->direct_blks[0] = blkno;
+    inode->blocks = 1;
+    inode->size= pathlen;
+    dirty_inode(link_ino, ctx);
+    return _link(basename(softpath), link_ino, parent_ino, ctx);
 }

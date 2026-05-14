@@ -125,4 +125,8 @@ int fsx492_utimens(
     const char * path, const struct timespec tv[2], struct fuse_file_info *fi);
 int fsx492_statfs(const char * path, struct statvfs * st);
 
+
+int fsx492_symlink(const char * path, const char * softpath);
+int fsx492_readlink(const char * path, char * buf, size_t size);
+
 #endif // __FSX492_H__
