@@ -684,6 +684,30 @@ _return:
     return ret;
 }
 
+static int lookup_path_follow(
+    const char * path, uint32_t * target_ino, uint32_t * parent_ino, int depth)
+{
+    if (depth > 64) return -ELOOP;  // too many symlinks
+
+    uint32_t ino = 0;
+    if (lookup_path(path, &ino, parent_ino) < 0) return ret;
+
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    if (!S_ISLNK(ctx->inodes[ino].mode)) {
+        if (target_ino) *target_ino = ino;
+        return 0;
+    }
+
+    // read the symlink target
+    char blkbuf[FSX492_BLKSZ];
+    if (read_blks(ctx->inodes[ino].direct_blks[0], 1, blkbuf) < 0) return -EIO;
+
+    // recurse with the target path
+    return lookup_path_follow(blkbuf, target_ino, parent_ino, depth + 1);
+}
+
+#define LP(X,Y,Z) lookup_path_follow(X,Y,Z,0)
+
 
 /**
  * @brief      get a pointer to this path's basename
@@ -1181,9 +1205,9 @@ int fsx492_getattr(
         ino = ((struct fh *)fi->fh)->ino;
     }
     else {
-        ret = lookup_path(path, &ino, NULL);
+        ret = LP(path, &ino, NULL);
         if (ret < 0) {
-            fprintf(stderr, "fsx492_getattr: lookup_path failed with %d\n", ret);
+            fprintf(stderr, "fsx492_getattr: LP failed with %d\n", ret);
             return ret;
         }
     }
@@ -1240,7 +1264,7 @@ int fsx492_mknod(const char * path, mode_t mode, dev_t dev)
     int ret = 0;
     uint32_t target_ino = 0, parent_ino = 0;
 
-    switch (ret = lookup_path(path, &target_ino, &parent_ino)) {
+    switch (ret = LP(path, &target_ino, &parent_ino)) {
     case 0:         // the path was found
         return -EEXIST;
     case -EIO:      // disk error
@@ -1344,9 +1368,9 @@ int fsx492_open(const char * path, struct fuse_file_info * fi)
 
     // lookup path and validate inode
     uint32_t ino = 0;
-    int ret = lookup_path(path, &ino, NULL);
+    int ret = LP(path, &ino, NULL);
     if (ret < 0) {//some failure with lookup
-        fprintf(stderr, "fsx492_open: lookup_path failed with %d\n", ret);
+        fprintf(stderr, "fsx492_open: LP failed with %d\n", ret);
         return ret;
     }
     if (validate_inode(ino, ctx) < 0) {
@@ -1810,8 +1834,8 @@ int fsx492_mkdir(const char * path, mode_t mode)
     }
     //check if directory already exists at path
     uint32_t ino = 0; uint32_t parent_ino = 0;
-    // lookup parent directory path (see docs for `lookup_path`)
-    int ret = lookup_path(path, &ino, &parent_ino);
+    // lookup parent directory path (see docs for `LP`)
+    int ret = LP(path, &ino, &parent_ino);
     //check if dir alr exists at path
     if (ret == 0) {
         fprintf(stderr, "fsx492_mkdir: directory already exists at path\n");
@@ -1819,7 +1843,7 @@ int fsx492_mkdir(const char * path, mode_t mode)
     }
     //otherwise it does not. check if there was another failure
     if (ret != -ENOENT) {//not found error is expected since we r creating new dir so ignore
-        fprintf(stderr, "fsx492_mkdir: lookup_path failed with %d\n", ret);
+        fprintf(stderr, "fsx492_mkdir: LP failed with %d\n", ret);
         return ret;
     }
     //check if parent_ino dne which we do not want
@@ -1918,7 +1942,7 @@ int fsx492_opendir(const char * path, struct fuse_file_info * fi)
     // TODO:
 
     // look up the directory inode
-    uint32_t ino = 0; int ret = lookup_path(path, &ino, NULL);
+    uint32_t ino = 0; int ret = LP(path, &ino, NULL);
     if (ret < 0) {return ret;}//aka there was a failure
     if (!S_ISDIR(ctx->inodes[ino].mode)) {
         fprintf(stderr, "fsx492_opendir: target is not a directory\n");
@@ -2098,12 +2122,12 @@ int fsx492_link(const char * oldpath, const char * newpath)
 
     //source must exist and must not be a directory
     uint32_t old_ino = 0;
-    if ((errcatch = lookup_path(oldpath, &old_ino, NULL)) < 0) return errcatch;
+    if ((errcatch = LP(oldpath, &old_ino, NULL)) < 0) return errcatch;
     if (S_ISDIR(ctx->inodes[old_ino].mode)) return -EISDIR;
 
     // destination parent must exist, target must not
     uint32_t new_ino = 0, new_parent_ino = 0;
-    if ((errcatch = lookup_path(newpath, &new_ino, &new_parent_ino)) <=0) {
+    if ((errcatch = LP(newpath, &new_ino, &new_parent_ino)) <=0) {
         if (errcatch == 0) return -EEXIST;     // "success" means failure here- should not be found
         if (errcatch != -ENOENT) return errcatch;     //ENOENT is *wanted* here
     };
@@ -2132,7 +2156,7 @@ int fsx492_unlink(const char * path)
 
     int ret = 0;
     uint32_t ino = 0, parent_ino = 0;
-    if ((ret = lookup_path(path, &ino, &parent_ino)) < 0) {
+    if ((ret = LP(path, &ino, &parent_ino)) < 0) {
         return ret;
     }
     // inode and parent were found
@@ -2171,9 +2195,9 @@ int fsx492_rmdir(const char * path)
     //first make sure path acc exists and get its inode and parent inode
     uint32_t ino = 0, parent_ino = 0;
     int ret = 0;
-    if ((ret = lookup_path(path, &ino, &parent_ino)) < 0) {
+    if ((ret = LP(path, &ino, &parent_ino)) < 0) {
         //some kinda error occured during lookup - which at least means path dne
-        fprintf(stderr, "fsx492_rmdir: lookup_path failed with %d\n", ret);
+        fprintf(stderr, "fsx492_rmdir: LP failed with %d\n", ret);
         return ret;
     }
     // confirm inode is directory
@@ -2262,7 +2286,7 @@ int fsx492_truncate(const char * path, off_t len, struct fuse_file_info *fi)
 
     if (fi) {
         ino = ((struct fh *)fi->fh)->ino;
-    } else if ((ret = lookup_path(path, &ino, NULL)) < 0) {
+    } else if ((ret = LP(path, &ino, NULL)) < 0) {
         return ret;
     }
 
@@ -2300,7 +2324,7 @@ int fsx492_rename(
     uint32_t new_ino = 0, newparent_ino = 0;
 
     // unlink newpath if it already exists
-    switch (ret = lookup_path(newpath, &new_ino, &newparent_ino)) {
+    switch (ret = LP(newpath, &new_ino, &newparent_ino)) {
     case -EIO:          // disk error
     case -ENOTDIR:      // bad newpath
         return ret;
@@ -2322,7 +2346,7 @@ int fsx492_rename(
     assert(newparent_ino);
 
     // find oldpath
-    if ((ret = lookup_path(oldpath, &old_ino, &oldparent_ino)) < 0) {
+    if ((ret = LP(oldpath, &old_ino, &oldparent_ino)) < 0) {
         return ret;
     }
     assert(old_ino);
@@ -2368,7 +2392,7 @@ int fsx492_chmod(const char * path, mode_t mode, struct fuse_file_info * fi)
     int errcatch;
     uint32_t inodeID = 0;
     if (fi) inodeID = ((struct fh *)fi->fh)->ino;
-    else if ((errcatch = lookup_path(path, &ino, NULL)) < 0) return errcatch;
+    else if ((errcatch = LP(path, &ino, NULL)) < 0) return errcatch;
 
     //change permissions
     struct fsx492_inode * inode = ctx->inodes + ino
@@ -2417,7 +2441,7 @@ int fsx492_utimens(
 
     if (fi) {
         ino = ((struct fh *)fi->fh)->ino;
-    } else if ((ret = lookup_path(path, &ino, NULL)) < 0) {
+    } else if ((ret = LP(path, &ino, NULL)) < 0) {
         return ret;
     }
 
@@ -2474,9 +2498,9 @@ int fsx492_symlink(const char * path, const char * softpath) {
 
     // softpath's parent must exist, softpath itself must not. same idea as hardlink
     uint32_t new_ino = 0, parent_ino = 0;
-    errcatch = lookup_path(softpath, &new_ino, &parent_ino);
+    errcatch = LP(softpath, &new_ino, &parent_ino);
     if (!parent_ino)    return -ENOENT;
-        if ((errcatch = lookup_path(softpath, &new_ino, &new_parent_ino)) <=0) {
+        if ((errcatch = LP(softpath, &new_ino, &new_parent_ino)) <=0) {
         if (errcatch == 0) return -EEXIST;     // "success" means failure here- should not be found
         if (errcatch != -ENOENT) return errcatch;     //ENOENT is *wanted* here
     };
@@ -2528,7 +2552,7 @@ int fsx492_readlink(const char * path, char * buf, size_t size) {
 
     //locate specified inode at path
     uint32_t ino = 0;
-    if ((errcatch = lookup_path(path, &ino, NULL)) < 0) return errcatch;
+    if ((errcatch = LP(path, &ino, NULL)) < 0) return errcatch;
     struct fsx492_inode* inode = &ctx->inodes[ino];
     if (!S_ISLNK(inode->mode)) return -EINVAL;
 
