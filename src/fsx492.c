@@ -1032,6 +1032,7 @@ struct fuse_operations fsx492_ops = {
 
     ////
     .symlink = fsx492_symlink,
+    .readlink = fsx492_readlink
 
 };
 
@@ -2461,7 +2462,7 @@ int fsx492_statfs(const char * path, struct statvfs * st)
 }
 
 
-
+/*EXTRA CREDIT*/
 int fsx492_symlink(const char * path, const char * softpath) {
 
     fprintf(stdout, "fsx492_symlink: %s -> %s\n", softpath, path);
@@ -2517,3 +2518,25 @@ int fsx492_symlink(const char * path, const char * softpath) {
     dirty_inode(link_ino, ctx);
     return _link(basename(softpath), link_ino, parent_ino, ctx);
 }
+
+int fsx492_readlink(const char * path, char * buf, size_t size) {
+    fprintf(stdout, "fsx492_readlink: %s\n", path);
+    assert(path);
+
+    struct context * ctx = (struct context *)fuse_get_context()->private_data;
+    int errcatch;
+
+    //locate specified inode at path
+    uint32_t ino = 0;
+    if ((errcatch = lookup_path(path, &ino, NULL)) < 0) return errcatch;
+    struct fsx492_inode* inode = &ctx->inodes[ino];
+    if (!S_ISLNK(inode->mode)) return -EINVAL;
+
+    // resolve target path
+    char blkbuf[FSX492_BLKSZ];
+    if (read_blks(inode->direct_blks[0], 1, blkbuf) < 0) return -EIO;
+    strncpy(buf, blkbuf, size - 1);
+    buf[size - 1] = '\0';
+    return 0;
+}
+

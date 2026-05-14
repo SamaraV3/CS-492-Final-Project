@@ -299,6 +299,60 @@ def test_changing_permissions(mountpoint):
     print("[test] passed changing permissions")
     
         
+'''
+Symlink test does the following:
+- resolve symlink to file and directory
+- read and write to file via symlink
+- link/unlink directory entries via symlink
+- resolve symlinks to symlinks
+'''
+def test_symlink(mountpoint):
+    basedir = os.path.join(mountpoint,"Folder")
+    os.mkdir(basedir)
+    basef =  os.path.join(basedir, "base.txt")
+    with open(basef,"w")as f:
+        f.write("Noble oceanographer from 9 to 5. (5)")
+
+    symd = os.path.join(mountpoint,"symd")
+    os.symlink(basedir,symd)
+    symf = os.path.join(mountpoint,"symToFile")
+    os.symlink(basef,symf)
+    assert (os.path.exists(symf) and os.path.exists(symd)), "Symlink failure: creation of link"
+    print("[symlink test1] passed: resolved to file and directory")
+    with open(symf,"r") as f:
+        line =  f.read()
+        assert (line == "Noble oceanographer from 9 to 5. (5)"), "Symlink failure: read from file"
+
+    with open(symf,"w") as f:
+       f.write("Halfway ruse of Romeo: Los Angeles amazed, country separated (5)")
+
+    with open(basef,"r")as f:
+        line =  f.read()
+        assert (line == "Halfway ruse of Romeo: Los Angeles amazed, country separated (5)"), "Symlink failure: write to file"
+     
+    print("[symlink test2] passed: read and write to file via symlink")
+
+   
+    newfile = os.path.join(symd, "new.txt")
+    with open(newfile, "w") as f:
+        f.write("created via symlink")
+
+    realfile = os.path.join(basedir, "new.txt")
+    assert os.path.exists(realfile), "Symlink failure: link via symlink"
+    os.remove(newfile)
+    assert not os.path.exists(realfile), "Symlink failure: unlink via symlink"
+
+    print("[symlink test3] passed: link/unlink directory entries via symlink")
+
+    symsym = os.path.join(mountpoint, "symToSym")
+    os.symlink(symf, symsym)
+    with open(symsym, "r") as f:
+        line = f.read()
+        assert (line == "Halfway ruse of Romeo: Los Angeles amazed, country separated (5)"), "Symlink failure: symlink to symlink"
+    
+    print("[symlink test4] passed: resolve symlinks to symlinks")
+
+
 
 
 ##############################################################################
